@@ -1,9 +1,8 @@
-"""
-Este archivo coordina todo el flujo del sistema, en este orden:
-    usuario -> password -> 2FA -> rol -> camara IP
-Si algo falla en cualquier paso, el programa muestra "Acceso denegado"
-y se detiene ahi mismo (no sigue a los pasos siguientes).
-"""
+from getpass import getpass
+from logging_config import configurar_logs
+
+
+RUTA_LOG = configurar_logs()
 
 import database
 import security
@@ -28,14 +27,40 @@ def crear_usuarios_de_prueba():
         ("admin", "admin@upy.edu.mx", "Administrador", "Admin123!", "192.168.1.50"),
         ("operador1", "operador1@upy.edu.mx", "Operador", "Operador123!", "192.168.1.51"),
         ("consulta1", "consulta1@upy.edu.mx", "Consulta", "Consulta123!", "192.168.1.52"),
+        ("visitante1", "visitante@gmail.com", "Operador", "Visitante1!", "192.168.1.53")
     ]
 
     for nombre, correo, rol, password_plano, ip_camara in usuarios_prueba:
         if not database.usuario_existe(nombre):
             hash_password = security.hashear_password(password_plano)
             ip_cifrada = security.cifrar_texto(ip_camara)
-            database.insertar_usuario(nombre, correo, rol, ip_cifrada, hash_password)
+            secreto_mfa = security.generar_secreto_mfa()
+            secreto_mfa_cifrado = security.cifrar_texto(secreto_mfa)
+            database.insertar_usuario(
+                nombre, correo, rol, ip_cifrada, hash_password, secreto_mfa_cifrado
+            )
             print(f"Usuario de prueba creado: {nombre} / {password_plano} (rol: {rol})")
+
+    generar_qr_usuarios()
+
+
+def generar_qr_usuarios():
+    """Crea un QR de Google Authenticator para cada usuario de la base."""
+    print("\nCodigos QR para vincular Google Authenticator:")
+    for usuario in database.listar_usuarios():
+        nombre = usuario[1]
+        secreto_cifrado = usuario[6]
+
+        # Completa automaticamente usuarios creados antes de agregar MFA.
+        if not secreto_cifrado:
+            secreto = security.generar_secreto_mfa()
+            secreto_cifrado = security.cifrar_texto(secreto)
+            database.actualizar_mfa_secret(nombre, secreto_cifrado)
+        else:
+            secreto = security.descifrar_texto(secreto_cifrado)
+
+        ruta_qr = security.generar_qr_mfa(nombre, secreto)
+        print(f"  {nombre}: {ruta_qr}")
 
 
 def paso_1_2_autenticacion():
@@ -46,7 +71,7 @@ def paso_1_2_autenticacion():
     """
     print("=== SISTEMA SEGURO ===")
     nombre_usuario = input("Usuario: ").strip()
-    password_ingresada = input("Contrasena: ").strip()
+    password_ingresada = getpass("Contrasena: ").strip()
 
     usuario = database.obtener_usuario_por_nombre(nombre_usuario)
 
@@ -54,7 +79,7 @@ def paso_1_2_autenticacion():
         print("\nAcceso denegado: usuario o contrasena incorrectos.")
         return None
 
-    # usuario = (id, nombre, correo, rol, ip_camara_cifrada, password_hash)
+    # usuario = (id, nombre, correo, rol, ip_camara_cifrada, password_hash, mfa_secret)
     hash_guardado = usuario[5]
 
     if not security.verificar_password(password_ingresada, hash_guardado):
@@ -68,21 +93,23 @@ def paso_1_2_autenticacion():
 
 def paso_3_dos_factores(usuario):
     """
-    Modulo 4: genera un codigo de 6 digitos, lo 'envia' (simulado)
-    y pide al usuario que lo confirme.
+    Modulo 4: valida el codigo TOTP generado por Google Authenticator.
     Regresa True si el codigo es correcto, False si no.
     """
-    correo = usuario[2]
-    codigo_generado = security.generar_codigo_2fa()
-    security.enviar_codigo_simulado(correo, codigo_generado)
+    secreto_cifrado = usuario[6]
+    if not secreto_cifrado:
+        print("\nAcceso denegado: el usuario no tiene MFA configurado.")
+        return False
 
-    codigo_ingresado = input("Introduce el codigo de verificacion: ").strip()
+    secreto = security.descifrar_texto(secreto_cifrado)
+    print("\n--- AUTENTICACION MULTIFACTOR (MFA) ---")
+    codigo_ingresado = getpass("Introduce el codigo de Google Authenticator: ").strip()
 
-    if security.validar_codigo_2fa(codigo_generado, codigo_ingresado):
-        print("\nCodigo de verificacion correcto. Segundo factor validado.")
+    if security.validar_codigo_mfa(secreto, codigo_ingresado):
+        print("\nCodigo MFA correcto. Segundo factor validado.")
         return True
     else:
-        print("\nAcceso denegado: codigo de verificacion incorrecto.")
+        print("\nAcceso denegado: codigo MFA incorrecto.")
         return False
 
 

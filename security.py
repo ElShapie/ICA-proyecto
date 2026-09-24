@@ -1,15 +1,15 @@
 """
 Aqui vive toda la logica de seguridad del proyecto:
   1. Hashing de contrasenas (bcrypt)
-  2. Generacion y validacion de codigo 2FA (secrets)
+  2. Generacion y validacion de codigos TOTP para Google Authenticator
   3. Cifrado / descifrado de datos sensibles (Fernet)
-
-Cada funcion hace UNA sola cosa, para que sea facil de explicar
-en la presentacion.
+  4. Generacion de codigos QR para vincular la aplicacion
 """
 
-import secrets
+from pathlib import Path
 import bcrypt
+import pyotp
+import qrcode
 from cryptography.fernet import Fernet
 
 # ---------------------------------------------------------
@@ -43,38 +43,39 @@ def verificar_password(password_texto_plano: str, hash_guardado: str) -> bool:
 
 
 # ---------------------------------------------------------
-# 2) AUTENTICACION DE DOS FACTORES (2FA)
+# 2) AUTENTICACION MULTIFACTOR TOTP
 # ---------------------------------------------------------
-# Usamos "secrets" (no "random") porque esta pensado para cosas
-# de seguridad: sus numeros son mas dificiles de predecir.
+EMISOR_MFA = "ICA Proyecto"
 
 
-def generar_codigo_2fa() -> str:
-    """Genera un codigo aleatorio de 6 digitos, como texto (para no perder ceros a la izquierda)."""
-    numero = secrets.randbelow(1_000_000)  # numero entre 0 y 999999
-    return f"{numero:06d}"
+def generar_secreto_mfa() -> str:
+    """Genera un secreto Base32 compatible con aplicaciones TOTP."""
+    return pyotp.random_base32()
 
 
-def enviar_codigo_simulado(correo_destino: str, codigo: str):
-    """
-    SIMULA el envio del codigo por correo/SMS.
-    En un sistema real, aqui se usaria una libreria como smtplib
-    para mandar un correo de verdad, por ejemplo:
-
-        import smtplib
-        servidor = smtplib.SMTP("smtp.gmail.com", 587)
-        servidor.starttls()
-        servidor.login("mi_correo@gmail.com", "mi_password_de_app")
-        servidor.sendmail("mi_correo@gmail.com", correo_destino, mensaje)
-
-    Para este prototipo, solo lo imprimimos en consola.
-    """
-    print(f"\n[SIMULACION DE ENVIO] Codigo de verificacion enviado a {correo_destino}: {codigo}\n")
+def crear_uri_mfa(nombre_usuario: str, secreto: str) -> str:
+    """Crea la URI otpauth que Google Authenticator guarda al escanear el QR."""
+    return pyotp.TOTP(secreto).provisioning_uri(
+        name=nombre_usuario,
+        issuer_name=EMISOR_MFA,
+    )
 
 
-def validar_codigo_2fa(codigo_generado: str, codigo_ingresado: str) -> bool:
-    """Compara el codigo que genero el sistema contra el que escribio el usuario."""
-    return codigo_generado == codigo_ingresado
+def generar_qr_mfa(nombre_usuario: str, secreto: str, directorio="qr_mfa") -> str:
+    """Genera el PNG de vinculacion y devuelve su ruta absoluta."""
+    carpeta = Path(directorio)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    ruta = carpeta / f"{nombre_usuario}_google_authenticator.png"
+    imagen = qrcode.make(crear_uri_mfa(nombre_usuario, secreto))
+    imagen.save(ruta)
+    return str(ruta.resolve())
+
+
+def validar_codigo_mfa(secreto: str, codigo_ingresado: str) -> bool:
+    """Valida el TOTP actual, tolerando un intervalo de 30 segundos adyacente."""
+    if not codigo_ingresado.isdigit() or len(codigo_ingresado) != 6:
+        return False
+    return pyotp.TOTP(secreto).verify(codigo_ingresado, valid_window=1)
 
 
 # ---------------------------------------------------------

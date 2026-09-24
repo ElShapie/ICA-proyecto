@@ -1,3 +1,5 @@
 bcrypt
 cryptography
 opencv-python
+pyotp
+qrcode[pil]

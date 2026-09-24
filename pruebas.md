@@ -5,21 +5,21 @@ la consola en cada caso; esas capturas son las evidencias que pide el
 proyecto.
 
 1. **Usuario valido**
-   Usuario: `admin` / Contrasena: `Admin123!` + codigo 2FA correcto.
+   Usuario: `admin` / Contrasena: `Admin123!` + codigo MFA correcto.
    Resultado esperado: "Autenticacion exitosa".
 
 2. **Contrasena incorrecta**
    Usuario: `admin` / Contrasena: `password_mala`.
    Resultado esperado: "Acceso denegado: usuario o contrasena incorrectos."
 
-3. **Codigo 2FA correcto**
-   Login valido, y cuando el programa imprima el codigo en consola,
-   escribe exactamente ese mismo codigo.
-   Resultado esperado: "Codigo de verificacion correcto."
+3. **Codigo MFA correcto**
+   Vincula el QR del usuario con Google Authenticator y escribe el codigo
+   de seis digitos vigente.
+   Resultado esperado: "Codigo MFA correcto."
 
-4. **Codigo 2FA incorrecto**
-   Login valido, pero escribe un codigo distinto al mostrado (por ejemplo `000000`).
-   Resultado esperado: "Acceso denegado: codigo de verificacion incorrecto."
+4. **Codigo MFA incorrecto**
+   Login valido, pero escribe un codigo incorrecto (por ejemplo `000000`).
+   Resultado esperado: "Acceso denegado: codigo MFA incorrecto."
 
 5. **Hash**
    Despues de un login exitoso, el programa imprime automaticamente el

@@ -27,6 +27,7 @@ def crear_tabla():
       - rol            -> Administrador / Operador / Consulta
       - ip_camara      -> direccion IP de la camara asignada (se guarda cifrada)
       - password_hash  -> hash de la contrasena (NUNCA la contrasena real)
+      - mfa_secret     -> secreto TOTP cifrado para Google Authenticator
     """
     conexion = obtener_conexion()
     cursor = conexion.cursor()
@@ -37,14 +38,20 @@ def crear_tabla():
             correo TEXT NOT NULL,
             rol TEXT NOT NULL,
             ip_camara TEXT NOT NULL,
-            password_hash TEXT NOT NULL
+            password_hash TEXT NOT NULL,
+            mfa_secret TEXT
         )
     """)
+
+    # Migracion para bases creadas con versiones anteriores del proyecto.
+    columnas = {fila[1] for fila in cursor.execute("PRAGMA table_info(usuarios)")}
+    if "mfa_secret" not in columnas:
+        cursor.execute("ALTER TABLE usuarios ADD COLUMN mfa_secret TEXT")
     conexion.commit()
     conexion.close()
 
 
-def insertar_usuario(nombre, correo, rol, ip_camara_cifrada, password_hash):
+def insertar_usuario(nombre, correo, rol, ip_camara_cifrada, password_hash, mfa_secret_cifrado=None):
     """
     Inserta un usuario nuevo en la base de datos.
     Recibe el password_hash YA calculado (ver security.py) y la
@@ -54,9 +61,9 @@ def insertar_usuario(nombre, correo, rol, ip_camara_cifrada, password_hash):
     conexion = obtener_conexion()
     cursor = conexion.cursor()
     cursor.execute("""
-        INSERT INTO usuarios (nombre, correo, rol, ip_camara, password_hash)
-        VALUES (?, ?, ?, ?, ?)
-    """, (nombre, correo, rol, ip_camara_cifrada, password_hash))
+        INSERT INTO usuarios (nombre, correo, rol, ip_camara, password_hash, mfa_secret)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (nombre, correo, rol, ip_camara_cifrada, password_hash, mfa_secret_cifrado))
     conexion.commit()
     conexion.close()
 
@@ -69,7 +76,7 @@ def obtener_usuario_por_nombre(nombre):
     conexion = obtener_conexion()
     cursor = conexion.cursor()
     cursor.execute("""
-        SELECT id, nombre, correo, rol, ip_camara, password_hash
+        SELECT id, nombre, correo, rol, ip_camara, password_hash, mfa_secret
         FROM usuarios
         WHERE nombre = ?
     """, (nombre,))
@@ -85,7 +92,7 @@ def listar_usuarios():
     """
     conexion = obtener_conexion()
     cursor = conexion.cursor()
-    cursor.execute("SELECT id, nombre, correo, rol, ip_camara, password_hash FROM usuarios")
+    cursor.execute("SELECT id, nombre, correo, rol, ip_camara, password_hash, mfa_secret FROM usuarios")
     resultados = cursor.fetchall()
     conexion.close()
     return resultados
@@ -94,3 +101,15 @@ def listar_usuarios():
 def usuario_existe(nombre):
     """Regresa True si ya existe un usuario con ese nombre."""
     return obtener_usuario_por_nombre(nombre) is not None
+
+
+def actualizar_mfa_secret(nombre, mfa_secret_cifrado):
+    """Guarda el secreto MFA cifrado de un usuario existente."""
+    conexion = obtener_conexion()
+    cursor = conexion.cursor()
+    cursor.execute(
+        "UPDATE usuarios SET mfa_secret = ? WHERE nombre = ?",
+        (mfa_secret_cifrado, nombre),
+    )
+    conexion.commit()
+    conexion.close()

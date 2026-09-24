@@ -1,5 +1,8 @@
 secret.key
 usuarios.db
+.env
+qr_mfa/
+logs/
 __pycache__/
 *.pyc
 *:Zone.Identifier
